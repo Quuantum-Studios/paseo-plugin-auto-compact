@@ -1,0 +1,9 @@
+{
+  "id": "auto-compact",
+  "name": "Auto-compact assist",
+  "description": "Asks agents when to compact, saves their notes first, then compacts and resumes.",
+  "media": [],
+  "requirements": {
+    "paseo": ">=0.14.0"
+  }
+}
