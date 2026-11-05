@@ -2,7 +2,6 @@
 
 ![Auto-compact settings screen](docs/settings.png)
 
-
 A Paseo plugin that keeps long-running Claude agents lean without hurting their work. When an agent's context grows past a threshold, the plugin asks the agent whether now is a good point to compact. If the agent agrees, it first saves its working state, durable learnings and skill updates to files, then the plugin sends `/compact` and, afterwards, one prompt telling the agent to resume from its notes.
 
 Plugins are trusted code: this one sends prompts to your agents and can (opt-in) edit your Claude settings.
@@ -77,6 +76,7 @@ The hook is optional and off by default. The default trigger is the plugin's own
 - Above `maxThreshold` the plugin still waits for the current turn to end, and gives one save turn before compacting.
 - Per-agent opt-out label; global `enabled: false`; `paseo plugin disable`.
 - Between the limits it compacts only after the agent confirms its save step with `ready to compact`; above `maxThreshold` it compacts after the one save turn regardless.
+- Resumes only after a confirmed compaction: a completed compaction after its own `/compact`, or the context shrinking below half. A `/compact` cancelled by a message that arrived mid-compaction is re-sent once the agent is idle (at most 3 sends), then the plugin stops with a timeline row instead of claiming it is done.
 - Every decision is logged as JSON: `paseo plugin logs auto-compact-assist`.
 
 ## Requirements
@@ -88,6 +88,11 @@ Settings save automatically: switches at once, text fields 500 ms after the last
 Every field is pre-filled with its current value; the three prompt fields show the built-in text until you change it (saving text equal to the built-in keeps it unset, so future built-in updates still apply).
 
 ## Changelog
+
+### 1.6.1
+- Fix: the plugin no longer says "Compaction done" after a `/compact` that was cancelled. It used to accept any compaction after any earlier `/compact` in the recent timeline; it now requires a completed compaction after the latest `/compact`, or the context dropping below half of its size when `/compact` was sent.
+- Fix: a `/compact` cancelled by an incoming message (another agent's finish notification, a watch, a heartbeat) is retried once the agent is idle, up to 3 sends in all. If it is still cancelled, a timeline row says so and nothing is resumed.
+- Known limit: a plugin cannot hold incoming messages while `/compact` runs. Paseo delivers agent notifications with `steer`; the Claude provider refuses to steer while compacting, so Paseo replaces the running turn, which cancels the compaction. Holding them needs a Paseo change (see the notes for the request).
 
 ### 1.6.0
 - Docs: README and overview explain the default thresholds and the local data the plugin stores (see "Defaults and local data").

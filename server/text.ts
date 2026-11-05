@@ -43,15 +43,37 @@ export function hasReadyToCompact(text: string): boolean {
   return lines(text).some((l) => l.toLowerCase() === "ready to compact");
 }
 
-// True when a compaction item follows the latest "/compact" user message.
+// True when a completed compaction item follows the latest "/compact" user message.
+// A cancelled /compact leaves no completed item (at most a "loading" marker), so an older
+// /compact's compaction must not count: each /compact resets the search.
 export function compactionAfterCommand(items: readonly unknown[]): boolean {
   let seen = false;
+  let done = false;
   for (const raw of items) {
     const item = raw as { type?: string; text?: unknown; status?: string };
-    if (item.type === "user_message" && typeof item.text === "string" && item.text.trim().startsWith("/compact")) seen = true;
-    else if (seen && item.type === "compaction" && item.status !== "loading") return true;
+    if (item.type === "user_message" && typeof item.text === "string" && item.text.trim().startsWith("/compact")) { seen = true; done = false; }
+    else if (seen && item.type === "compaction" && item.status === "completed") done = true;
   }
-  return false;
+  return done;
+}
+
+// Did the /compact we sent really compact? "done": a completed compaction follows our /compact, or the
+// context shrank to under half of what it was when we sent it. "pending": still running, or too early to
+// tell. "canceled": the agent is idle again, nothing compacted and the context did not shrink (Paseo
+// replaces a running /compact turn when another agent's message arrives, which cancels the compaction).
+export type CompactOutcome = "done" | "pending" | "canceled";
+export function compactOutcome(input: {
+  items: readonly unknown[];
+  tokens: number; // context now
+  tokensAtCompact: number; // context when /compact was sent (0 = unknown)
+  idle: boolean;
+  sinceSendMs: number;
+  graceMs: number; // an idle agent right after the send may simply not have started the command yet
+}): CompactOutcome {
+  if (compactionAfterCommand(input.items)) return "done";
+  if (input.tokensAtCompact > 0 && input.tokens > 0 && input.tokens < input.tokensAtCompact / 2) return "done";
+  if (!input.idle || input.sinceSendMs < input.graceMs) return "pending";
+  return "canceled";
 }
 
 const OUR_PREFIXES = ["Context is about", "Compaction approved.", "Compaction done.", "Context was compacted.", "/compact"];

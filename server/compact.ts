@@ -2,11 +2,13 @@ import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin
 import { COMPACT_ROW_KIND } from "../shared/row";
 import { ASK_DEFAULT, FORMAT, SAVE_DEFAULT, levelFor, limitsFor, readConfig } from "./config";
 import { loadStates, saveStates, type AgentState } from "./state";
-import { capturePreflow, compactionAfterCommand, hasReadyToCompact, latestOutputText, parseCheck, userMessageAfterCompaction } from "./text";
+import { capturePreflow, compactOutcome, hasReadyToCompact, latestOutputText, parseCheck, userMessageAfterCompaction } from "./text";
 
 const WATCH_MS = 5_000; // poll cadence while a compaction is in flight
 const GIVE_UP_MS = 15 * 60_000; // stop waiting for a compaction that never lands
 const RESUME_ATTEMPTS = 3;
+const COMPACT_ATTEMPTS = 3; // a cancelled /compact is re-sent once the agent is idle, at most this many sends in all
+const CANCEL_GRACE_MS = 20_000; // an idle agent this soon after /compact may not have started the command yet
 
 const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
 const RESUME_PREFIX = "Compaction done.";
@@ -59,11 +61,39 @@ export function registerCompactAssist(server: PluginServerContext) {
       if (!snap || snap.archivedAt) { st.phase = undefined; st.preflow = undefined; save(); log("resume-dropped", { why: "archived" }); return; }
       const page = await ref.timeline.refetch({ direction: "tail", limit: 40 });
       const items = page.entries.map(({ item }: { item: unknown }) => item);
-      if (!compactionAfterCommand(items)) {
-        if (Date.now() - st.compactedAt > GIVE_UP_MS) { st.phase = undefined; st.preflow = undefined; save(); log("compact-not-confirmed"); }
+      const idle = !snap.activeTurn && snap.status !== "running";
+      const tokens = snap.lastUsage?.contextWindowUsedTokens ?? 0;
+      const row = (state: "ready" | "canceled", note: string) =>
+        ref.timeline.append({ type: "plugin", id: "auto-compact", kind: COMPACT_ROW_KIND, version: 1, data: { state, tokens, note } });
+      const outcome = compactOutcome({
+        items, tokens, tokensAtCompact: st.compactTokens ?? 0, idle,
+        sinceSendMs: Date.now() - st.compactedAt, graceMs: CANCEL_GRACE_MS,
+      });
+      if (outcome === "canceled") {
+        // Never claim "done" for a compaction that did not happen: retry while attempts remain, else say so and stop.
+        const sent = st.compactAttempts ?? 1;
+        if (sent >= COMPACT_ATTEMPTS) {
+          st.phase = undefined; st.preflow = undefined; st.forced = false; st.compactAttempts = 0; st.compactTokens = undefined; save();
+          log("compact-canceled-giveup", { attempts: sent, tokens });
+          await row("canceled", `Compaction was cancelled ${sent} times (messages kept arriving mid-compaction). Not compacting; type /compact when the agent is quiet.`);
+          return;
+        }
+        st.compactAttempts = sent + 1; st.compactedAt = Date.now(); st.compactTokens = tokens || st.compactTokens; save();
+        log("compact-canceled-retry", { attempt: st.compactAttempts, tokens });
+        await row("canceled", `Compaction was cancelled by an incoming message. Retrying /compact (${st.compactAttempts}/${COMPACT_ATTEMPTS}).`);
+        await ref.send("/compact");
         return;
       }
-      if (snap.activeTurn || snap.status === "running") return; // compaction turn still closing; the watcher comes back
+      if (outcome === "pending") {
+        if (Date.now() - st.compactedAt > GIVE_UP_MS) {
+          st.phase = undefined; st.preflow = undefined; st.compactAttempts = 0; st.compactTokens = undefined; save();
+          log("compact-not-confirmed");
+          await row("canceled", "Compaction was not confirmed within 15 minutes. Not resuming.");
+        }
+        return;
+      }
+      if (!idle) return; // compaction turn still closing; the watcher comes back
+      st.compactAttempts = 0; st.compactTokens = undefined;
       const cfg = await readConfig();
       if (!cfg.resume) { st.phase = undefined; st.preflow = undefined; st.forced = false; st.nextAskAt = 0; save(); log("resume-off"); return; }
       const msg = RESUME(st.preflow, cfg.resumePrompt);
@@ -164,6 +194,7 @@ export function registerCompactAssist(server: PluginServerContext) {
         return;
       }
       st.phase = "compacting"; st.compactedAt = Date.now(); st.forced = false;
+      st.compactTokens = tokens; st.compactAttempts = 1;
       save();
       log("compact", { cmd: "/compact" });
       await row("ready", "State saved. Sending /compact now.");

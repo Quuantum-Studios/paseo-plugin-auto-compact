@@ -1,6 +1,6 @@
 {
   "name": "paseo-plugin-auto-compact",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",

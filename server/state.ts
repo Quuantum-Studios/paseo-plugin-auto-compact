@@ -9,6 +9,8 @@ export interface AgentState {
   askPending: boolean; // our ask is awaiting its reply
   askedAt: number; // ms of last plugin ask
   compactedAt: number; // ms of last /compact we sent
+  compactTokens?: number; // context size when that /compact was sent; a real compaction shrinks it
+  compactAttempts?: number; // /compact sends in this flow (a cancelled one is retried, capped)
   nextAskAt: number; // tokens: do not ask again below this
   forced?: boolean; // flow started because tokens passed maxThreshold: compact even if the agent does not confirm the save
   preflow?: Preflow; // what the agent was doing before the flow started; sent back in the resume prompt
