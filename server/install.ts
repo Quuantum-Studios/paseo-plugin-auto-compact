@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { MY_CONTEXT_SCRIPT, PRE_COMPACT_SKILL } from "./assets";
@@ -57,4 +57,29 @@ export function removeHook(): string {
   if (s.permissions?.allow) s.permissions.allow = s.permissions.allow.filter((a) => a !== ALLOW);
   write(settingsPath(), JSON.stringify(s, null, 2) + "\n");
   return "Hook removed.";
+}
+
+// Install the skill only when missing (never overwrite a user's copy). Returns a log message or null.
+export function ensureSkill(): string | null {
+  if (existsSync(skillPath())) return null;
+  write(skillPath(), PRE_COMPACT_SKILL);
+  return `skill installed at ${skillPath()}`;
+}
+
+// Remove the skill. An unchanged copy is deleted; an edited one is renamed to a dated backup.
+export function removeSkill(): string | null {
+  const path = skillPath();
+  if (!existsSync(path)) return null;
+  let msg: string;
+  if (readFileSync(path, "utf8") === PRE_COMPACT_SKILL) {
+    rmSync(path);
+    msg = "skill removed";
+  } else {
+    let backupPath = `${path}.bak-${new Date().toISOString().slice(0, 10)}`;
+    for (let n = 2; existsSync(backupPath); n++) backupPath = `${path}.bak${n}-${new Date().toISOString().slice(0, 10)}`; // never overwrite an earlier backup
+    renameSync(path, backupPath);
+    msg = `edited skill moved to ${backupPath}`;
+  }
+  try { rmdirSync(dirname(path)); } catch { /* backups or other files remain */ }
+  return msg;
 }

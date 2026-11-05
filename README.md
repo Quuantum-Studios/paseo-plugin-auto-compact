@@ -1,5 +1,8 @@
 # Auto-compact assist
 
+![Auto-compact settings screen](docs/settings.png)
+
+
 A Paseo plugin that keeps long-running Claude agents lean without hurting their work. When an agent's context grows past a threshold, the plugin asks the agent whether now is a good point to compact. If the agent agrees, it first saves its working state, durable learnings and skill updates to files, then the plugin sends `/compact` and, afterwards, one prompt telling the agent to resume from its notes.
 
 Plugins are trusted code: this one sends prompts to your agents and can (opt-in) edit your Claude settings.
@@ -26,11 +29,16 @@ One line anywhere in the reply; the last one wins:
 
 `ctx` is the agent's rough guess and is informational; the plugin uses its own measurement. A malformed line is logged and treated as "no".
 
+## Defaults and local data
+
+- **Thresholds:** compaction is *advised* at 150,000 tokens (`normalThreshold`): the agent is asked and may decline. At 250,000 (`maxThreshold`) a save turn is *forced*: the agent must save its state and the plugin then compacts it, even if the agent did not confirm. Change both in the settings screen; turn forcing off with `forceAboveMax`.
+- **Stored locally:** per-agent flow state is kept in `~/.paseo/plugin-data/auto-compact-assist/state.json` (mode 0600) so a reload or restart does not lose a pending resume. It holds the phase, timestamps and an excerpt of what the agent was doing: the task (first 500 characters) and its last output (last 600 characters), with common secret patterns (bearer tokens, API keys, `password=`/`token=` values, long hex or base64 strings) redacted by pattern. Pattern redaction is best effort and can miss secrets in unusual formats. The excerpts are used only to build the resume prompt sent back to the same agent, and nothing is sent to any other service. Delete the file to clear them.
+
 ## Setup
 
 The plugin is **off by default**. Open **Auto-compact** in the sidebar top list (or Settings → Plugins → Auto-compact, or Command Center → "Auto-compact: open settings") and switch **Enabled** on.
 
-Settings use Paseo's native plugin settings, stored per host in `~/.paseo/plugin-settings/auto-compact-assist/options.json` and kept across reloads, disables and updates. Switches save at once; limits, scope and prompts are edited and saved together with **Save**, which rejects bad values with a message. Changes apply on the agent's next turn; no reload needed. Token values accept numbers or strings like `150k`, `1.5m`. Upgrading from 1.1.x copies the old `~/.paseo/plugin-data/auto-compact-assist/config.json` into the native settings once; that file is no longer read.
+Settings use Paseo's native plugin settings, stored per host in `~/.paseo/plugin-settings/auto-compact-assist/options.json` and kept across reloads, disables and updates. Every change saves automatically (switches at once, text fields 500 ms after the last keystroke); an invalid value is shown and not saved. Changes apply on the agent's next turn; no reload needed. Token values accept numbers or strings like `150k`, `1.5m`. Upgrading from 1.1.x copies the old `~/.paseo/plugin-data/auto-compact-assist/config.json` into the native settings once; that file is no longer read.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -78,3 +86,11 @@ Paseo 0.14.0 or later; Claude agents. License: MIT.
 Settings save automatically: switches at once, text fields 500 ms after the last keystroke. A line at the top of the screen shows "Saving…", "Saved" or the error. An invalid value is shown and not saved.
 
 Every field is pre-filled with its current value; the three prompt fields show the built-in text until you change it (saving text equal to the built-in keeps it unset, so future built-in updates still apply).
+
+## Changelog
+
+### 1.6.0
+- Docs: README and overview explain the default thresholds and the local data the plugin stores (see "Defaults and local data").
+- The optional `my-context` helper now reads the current native settings (`options.json`: `normalThreshold`, `enabled`, values like `150k`); the legacy `config.json` is only a fallback. Per-provider limits are not read by the helper, which reports the global threshold.
+- New setting **Install pre-compact-save skill** (on by default). The plugin bundles the skill and installs it into `~/.claude/skills/pre-compact-save/` when missing, at startup and when the setting is on. Turning it off removes the skill; a copy you edited is moved to `SKILL.md.bak-<date>` instead of being deleted. An existing skill is never overwritten.
+- The skill now also tells the agent to save durable user preference patterns (reply style, decisions, workflow, tools, naming, ownership, repeated corrections) to its persistent memory while saving state.

@@ -3,16 +3,34 @@ export const MY_CONTEXT_SCRIPT = `#!/usr/bin/env python3
 """Print this agent's current context size: ctx=<tokens> threshold=<t> <ok|consider|compact>.
 Uses $PASEO_AGENT_ID -> ~/.paseo/agents/*/<id>.json (persistence.sessionId) -> <sessionId>.jsonl last usage.
 Without PASEO_AGENT_ID: newest transcript for the current directory. Reads only the file tail."""
-import glob, json, os, sys
+import glob, json, os, re, sys
 
 HOME = os.path.expanduser("~")
 DEFAULT_THRESHOLD = 150000
 
-def threshold():
+def settings():
+    """Current native plugin settings (options.json values); legacy config.json only as a fallback for pre-1.2 installs."""
+    for path in (f"{HOME}/.paseo/plugin-settings/auto-compact-assist/options.json", f"{HOME}/.paseo/plugin-data/auto-compact-assist/config.json"):
+        try:
+            data = json.load(open(path))
+        except Exception:
+            continue
+        return data.get("values", data) if isinstance(data, dict) else {}
+    return {}
+
+def tokens(v):
+    """Token value as a number or a string like 150k / 1.5m."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return int(v)
+    m = isinstance(v, str) and re.fullmatch(r"\\s*([0-9.]+)\\s*([km]?)\\s*", v.lower())
     try:
-        return int(json.load(open(f"{HOME}/.paseo/plugin-data/auto-compact-assist/config.json")).get("thresholdTokens", DEFAULT_THRESHOLD))
-    except Exception:
-        return DEFAULT_THRESHOLD
+        return int(float(m.group(1)) * {"": 1, "k": 1000, "m": 1000000}[m.group(2)]) if m else None
+    except ValueError:
+        return None
+
+def threshold(cfg=None):
+    cfg = settings() if cfg is None else cfg
+    return tokens(cfg.get("normalThreshold")) or tokens(cfg.get("thresholdTokens")) or DEFAULT_THRESHOLD
 
 def roots():
     return [f"{HOME}/.claude/projects"] + glob.glob(f"{HOME}/.paseo/zerosub/homes/*/projects")
@@ -63,15 +81,12 @@ def hook_mode():
         data = json.load(sys.stdin)
     except Exception:
         return
-    try:
-        cfg = json.load(open(f"{HOME}/.paseo/plugin-data/auto-compact-assist/config.json"))
-    except Exception:
-        cfg = {}
+    cfg = settings()
     if not cfg.get("enabled") or not os.environ.get("PASEO_AGENT_ID"):
         return
     path = data.get("transcript_path")
     n = context_tokens(path) if path and os.path.exists(path) else None
-    t = int(cfg.get("thresholdTokens", DEFAULT_THRESHOLD))
+    t = threshold(cfg)
     if n is None or n < t:
         return
     stamp = f"/tmp/my-context-remind-{data.get('session_id', 'x')}"
@@ -134,6 +149,9 @@ Write to the project's own notes: \`TODO.md\`, \`NOTES.md\`, or \`memory/\` (els
 
 ## 2. Durable learnings
 Facts true beyond this task (tool quirks, paths, recipes, failure modes + fixes): append one dated line each to the project's learnings/memory file. Skip what the repo or an existing note already records.
+
+## 2b. User preference patterns
+Note how the user wants things done, seen this session: reply style, decision handling, workflow, tools, naming, who owns what, repeated corrections. Save only durable patterns (not one-off asks) to your persistent memory (user/feedback memories, one fact per file, update an existing one rather than duplicate), or the project's notes if that is where you keep memory. Never secrets.
 
 ## 3. Skills
 For each skill used or missed this session: if a step was wrong, missing, or needed a workaround, fix it (minimal edit, back up first: \`cp SKILL.md SKILL.md.bak-<date>\`). If a repeatable procedure was done by hand, add or draft a skill. Global skills (\`~/.claude/skills\`): edit only if the user already allowed it; otherwise list the proposed change in the notes file.

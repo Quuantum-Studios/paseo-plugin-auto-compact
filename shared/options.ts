@@ -20,6 +20,7 @@ export interface Config {
   retryAfterTokens: number; // after ready=no / low confidence, re-ask only after this many more tokens
   autoCompact: boolean; // send /compact after the save step; false = stop at a timeline row
   resume: boolean; // send the resume prompt after compaction
+  installSkill: boolean; // keep the pre-compact-save skill installed in ~/.claude/skills
   dryRun: boolean; // decide and log, but send nothing and compact nothing
   askPrompt: string | null; // templates; null = built-in. Placeholders: {k} {tokens} {format}
   savePrompt: string | null; // {k} {tokens}
@@ -44,6 +45,7 @@ export const DEFAULTS: Config = {
   retryAfterTokens: 30_000,
   autoCompact: true,
   resume: true,
+  installSkill: true,
   dryRun: false,
   askPrompt: null,
   savePrompt: null,
@@ -89,7 +91,7 @@ export function normalizeConfig(raw: unknown): { cfg: Config; warnings: string[]
     if (typeof src[key] !== "string" || !(src[key] as string).trim()) warnings.push(`${key}: must be a non-empty string or null`);
     else (cfg[key] as string | null) = src[key] as string;
   };
-  bool("enabled"); bool("forceAboveMax"); bool("autoCompact"); bool("resume"); bool("dryRun");
+  bool("enabled"); bool("forceAboveMax"); bool("autoCompact"); bool("resume"); bool("dryRun"); bool("installSkill");
   num("normalThreshold", 1_000, 10_000_000, true);
   num("maxThreshold", 1_000, 10_000_000, true);
   num("agentInitiatedMinTokens", 0, 10_000_000, true);
@@ -175,6 +177,7 @@ export const autoCompactSettings = defineSettings({
     retryAfterTokens: tokens(D.retryAfterTokens),
     autoCompact: z.boolean().default(D.autoCompact),
     resume: z.boolean().default(D.resume),
+    installSkill: z.boolean().default(D.installSkill),
     dryRun: z.boolean().default(D.dryRun),
     askPrompt: z.string().nullable().default(null),
     savePrompt: z.string().nullable().default(null),

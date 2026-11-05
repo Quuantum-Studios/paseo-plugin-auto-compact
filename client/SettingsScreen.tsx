@@ -6,13 +6,14 @@ import { ASK_DEFAULT, RESUME_DEFAULT, SAVE_DEFAULT, autoCompactSettings, normali
 
 type Ready = Extract<SettingsState<typeof autoCompactSettings.schema>, { status: "ready" }>;
 type Values = Ready["values"];
-type Switch = "enabled" | "forceAboveMax" | "autoCompact" | "resume" | "dryRun";
+type Switch = "enabled" | "forceAboveMax" | "autoCompact" | "resume" | "installSkill" | "dryRun";
 
 const SWITCHES: { key: Switch; label: string; hint: string }[] = [
   { key: "enabled", label: "Enabled", hint: "Master switch. Off = the plugin does nothing." },
   { key: "forceAboveMax", label: "Force above maximum", hint: "Above the maximum, run save then compact even if the agent declines." },
   { key: "autoCompact", label: "Send /compact automatically", hint: "Off = stop after the save step and leave a timeline row." },
   { key: "resume", label: "Resume after compaction", hint: "Send the resume prompt once compaction is done." },
+  { key: "installSkill", label: "Install pre-compact-save skill", hint: "Keeps the skill in ~/.claude/skills/pre-compact-save. Off removes it (an edited copy is backed up first)." },
   { key: "dryRun", label: "Dry run", hint: "Decide and log, but send nothing and compact nothing." },
 ];
 const LOG_LEVELS = [{ label: "Info", value: "info" }, { label: "Debug (per-turn timing)", value: "debug" }] as const;
@@ -120,8 +121,8 @@ function Form({ settings, theme }: { settings: Ready; theme: PluginSurfaceProps[
       if ("error" in r) { setError(r.error); setStatus("error"); return; }
       setError(null);
       // Only text-field values come from the draft; switches always keep their newest saved value.
-      const { enabled, forceAboveMax, autoCompact, resume, dryRun, logLevel } = s.values;
-      void saveNow({ ...r.values, enabled, forceAboveMax, autoCompact, resume, dryRun, logLevel });
+      const { enabled, forceAboveMax, autoCompact, resume, installSkill, dryRun, logLevel } = s.values;
+      void saveNow({ ...r.values, enabled, forceAboveMax, autoCompact, resume, installSkill, dryRun, logLevel });
       edited.current = false;
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
